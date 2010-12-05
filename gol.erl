@@ -129,7 +129,9 @@ wait_cell_state(From, AllCells, 0, States) ->
 
 wait_cell_state(From, AllCells, UpdateCounter, States) ->
     receive
-        Cell ->
-            gol:wait_cell_state(From, AllCells, UpdateCounter-1, [Cell|States])
+        {Row, Col, State} ->
+            CellData = {struct, [{row, Row}, {col, Col}, {state, State}]},
+            gol:wait_cell_state(From, AllCells, UpdateCounter-1, 
+                                [CellData|States])
     end.
 
