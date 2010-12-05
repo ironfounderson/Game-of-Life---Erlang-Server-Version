@@ -94,7 +94,6 @@ rpc(Pid, Request) ->
 loop(AllCells) ->
     receive
         {From, tick} ->
-            io:format("main loop got tick~n"),
             [Cell ! {self(), tick} || {pid, Cell, _, _, _, _} <- AllCells ],
             gol:wait_cell_update(From, AllCells, length(AllCells));
         {From, exit} ->
@@ -106,14 +105,12 @@ loop(AllCells) ->
     end.
 
 wait_cell_update(From, AllCells, 0) ->
-    io:format("all cells have updated~n"),
     From ! {self(), "all cells have been updated"},
     gol:loop(AllCells);
 
 wait_cell_update(From, AllCells, UpdateCounter) ->
-    io:format("waiting for ~p more updates~n", [UpdateCounter]),
     receive
-        {Cell, done} ->
+        {_, done} ->
             gol:wait_cell_update(From, AllCells, UpdateCounter-1);
         Any ->
             io:format("wait loop got unknown message: ~p~n", [Any]),

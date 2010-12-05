@@ -34,7 +34,6 @@ update_state({row, Row, col, Col, state, State, neighbours, Neighbours}, LivingN
     gol_cell:cell(Row, Col, gol_cell:new_state(State, LivingNeighbours), Neighbours).
 
 init_loop(Row, Col, State) ->
-    io:format("Cell ~p;~p created with state = ~p~n", [Row, Col, State]),
     receive
         {set_neighbours, Neighbours} ->
             gol_cell:loop(cell(Row, Col, State, Neighbours), none)
@@ -43,7 +42,6 @@ init_loop(Row, Col, State) ->
 loop(Cell, Game) ->
     receive
         {From, tick} ->
-            io:format("~p:~p got tick~n", [gol_cell:row(Cell), gol_cell:col(Cell)]),
             [C ! {state, state(Cell)} || C <- neighbours(Cell)],
             gol_cell:wait_update(Cell, From, 0, length(neighbours(Cell)));
         {_, exit} ->
@@ -55,7 +53,6 @@ loop(Cell, Game) ->
 
 
 wait_update(Cell, Game, LiveCounter, 0) ->
-    io:format("~p;~p has ~p live neighbours~n", [row(Cell), col(Cell), LiveCounter]),
     NewCell = update_state(Cell, LiveCounter),
     Game ! {self(), done},
     gol_cell:loop(NewCell, Game);
