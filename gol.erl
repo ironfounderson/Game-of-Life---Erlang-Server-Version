@@ -10,7 +10,7 @@ start_blinker() ->
     start(["00000", "00000", "01110", "00000", "00000"]).
 
 start_test() ->
-    start(["123", "456", "789"]).
+    start(["000", "111", "000"]).
 
 start([IS | InitialStates]) ->
     io:format("Columns = ~p, Rows = ~p~n", 
@@ -81,6 +81,9 @@ tick(Pid) ->
 exit(Pid) ->
     rpc(Pid, exit).
 
+get_state(Pid) ->
+    rpc(Pid, get_state).
+
 rpc(Pid, Request) ->
     Pid ! {self(), Request},
     receive
@@ -96,6 +99,9 @@ loop(AllCells) ->
         {From, tick} ->
             [Cell ! {self(), tick} || {pid, Cell, _, _, _, _} <- AllCells ],
             gol:wait_cell_update(From, AllCells, length(AllCells));
+        {From, get_state} ->
+            [Cell ! {self(), get_state} || {pid, Cell, _, _, _, _} <- AllCells ],
+            gol:wait_cell_state(From, AllCells, length(AllCells), []);            
         {From, exit} ->
             [Cell ! {self(), exit} || {pid, Cell, _, _, _, _} <- AllCells ],
             From ! {self(), "exiting"};
@@ -117,5 +123,13 @@ wait_cell_update(From, AllCells, UpdateCounter) ->
             gol:wait_cell_update(From, AllCells, UpdateCounter)
     end.
     
+wait_cell_state(From, AllCells, 0, States) ->
+    From ! {self(), States},
+    gol:loop(AllCells);
 
+wait_cell_state(From, AllCells, UpdateCounter, States) ->
+    receive
+        Cell ->
+            gol:wait_cell_state(From, AllCells, UpdateCounter-1, [Cell|States])
+    end.
 

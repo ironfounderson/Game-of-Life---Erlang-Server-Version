@@ -44,6 +44,9 @@ loop(Cell, Game) ->
         {From, tick} ->
             [C ! {state, state(Cell)} || C <- neighbours(Cell)],
             gol_cell:wait_update(Cell, From, 0, length(neighbours(Cell)));
+        {From, get_state} ->
+            From ! {row(Cell), col(Cell), state(Cell)},
+            gol_cell:loop(Cell, Game);
         {_, exit} ->
             io:format("~p:~p got exit~n", [gol_cell:row(Cell), gol_cell:col(Cell)]);
         Any ->
