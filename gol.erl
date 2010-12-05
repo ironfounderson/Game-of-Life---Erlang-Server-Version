@@ -23,7 +23,17 @@ start([IS | InitialStates]) ->
     
     gol:assign_neighbours(AllCells, AllCells),
 
-    spawn(fun() -> gol:loop(AllCells) end).
+    GamePid = spawn(fun() -> gol:loop(AllCells) end),
+    gol:unregister_if_present(game),
+    register(game, GamePid),
+    GamePid.
+
+unregister_if_present(AtomName) ->
+    case whereis(AtomName) of
+        undefined -> true;
+        _ -> unregister(AtomName)
+    end.
+
 
 generate_cells(_, _, []) ->
      [];
@@ -75,11 +85,17 @@ neighbours(Row, Col, AllCells) ->
 
 %% interface
 
+tick() ->
+    tick(game).
+
 tick(Pid) ->
     rpc(Pid, tick).
 
 exit(Pid) ->
     rpc(Pid, exit).
+
+get_state() ->
+    get_state(game).
 
 get_state(Pid) ->
     rpc(Pid, get_state).
