@@ -119,6 +119,8 @@ loop(AllCells) ->
             erlang:exit(timeout)
     end.
 
+%% waiting for all cells to send an update
+
 wait_cell_update(From, AllCells, 0) ->
     From ! {self(), "all cells have been updated"},
     gol:loop(AllCells);
@@ -131,6 +133,9 @@ wait_cell_update(From, AllCells, UpdateCounter) ->
             io:format("wait loop got unknown message: ~p~n", [Any]),
             gol:wait_cell_update(From, AllCells, UpdateCounter)
     end.
+
+
+%% waiting for all cells to send their current state
     
 wait_cell_state(From, AllCells, 0, States) ->
     From ! {self(), States},
