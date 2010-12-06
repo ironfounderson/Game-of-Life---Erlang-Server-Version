@@ -35,6 +35,9 @@ route_request(A, ["start"], Querydata) ->
 route_request(A, ["tick"], Querydata) ->
     handle_tick(A, gol_rpc_server:query_to_keyvalues(Querydata));
 
+route_request(A, ["exit"], Querydata) ->
+    handle_exit(A, gol_rpc_server:query_to_keyvalues(Querydata));
+
 route_request(_, Path, _) ->
     io:format("Server got unknown path:~p~n", [Path]),
     gol_rpc_server:error_message(400, "Unknown path").
@@ -53,32 +56,59 @@ handle_start(_, [{"initialstate", InitialState}]) ->
     % an unique key that is mapped to the pid but this is just for testing
     io:format("got start request with initial state:~p~n", [InitialState]),
     return_json(json:encode(json_struct([{pid, PidStr}])));
-
 handle_start(_, _) ->
     gol_rpc_server:error_message(400, "start requires initialstate").
 
 %% tick game
 
 handle_tick(_, [{"pid", PidStr}]) ->
-    % This is a quick "hack" since I didn't had the time to check how to 
-    % properly encode < and > into the url.
-    MyPid = "<" ++ PidStr ++ ">",
-    % this can fail and should be handled. 
-    % the supplied string might be in the wrong format
-    % the pid might have died
-    Pid = list_to_pid(MyPid),
-    io:format("got tick request for ~p~n", [Pid]),
-    gol:tick(Pid),
-    Res = gol:get_state(Pid),
-    io:format("returning response~n"),
-    Json = json:encode(json_array(Res)),
-    % the current state of the game is returned as json
-    return_json(Json);
-
+    case gol_rpc_server:get_process(PidStr) of
+        undefined -> 
+            gol_rpc_server:error_message(400, "unknown pid");
+        Pid ->
+            io:format("got tick request for ~p~n", [Pid]),
+            gol:tick(Pid),
+            Res = gol:get_state(Pid),
+            io:format("returning response~n"),
+            Json = json:encode(json_array(Res)),
+            return_json(Json)
+    end;
 handle_tick(_, _) ->
     gol_rpc_server:error_message(400, "tick requires pid").
 
+
+%% tick game
+
+handle_exit(_, [{"pid", PidStr}]) ->
+    case gol_rpc_server:get_process(PidStr) of
+        undefined -> 
+            gol_rpc_server:error_message(400, "unknown pid");
+        Pid ->
+            io:format("got exit request for ~p~n", [Pid]),
+            gol:exit(Pid),
+            gol_rpc_server:error_message(200, "OK")
+    end;
+handle_exit(_, _) ->
+    gol_rpc_server:error_message(400, "exit requires pid").
+
 %% helpers
+
+% returns undefined if PidStr is not in the ocrrect format or if the process
+% no longer exists
+get_process(PidStr) ->
+    % This is a quick "hack" since I didn't had the time to check how to 
+    % properly encode < and > into the url.
+    MyPid = "<" ++ PidStr ++ ">",
+    try list_to_pid(MyPid) of
+        Pid -> 
+           case erlang:process_info(Pid) of
+               undefined -> undefined;
+               _ -> Pid
+           end
+    catch
+        _:_ ->
+            undefined
+    end.
 
 error_message(Code, Message) ->
     [{status, Code},

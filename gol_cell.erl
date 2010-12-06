@@ -36,6 +36,10 @@ update_state({row, Row, col, Col, state, State, neighbours, Neighbours}, LivingN
 init_loop(Row, Col, State) ->
     receive
         {set_neighbours, Neighbours} ->
+            io:format("~p:~p has ~p neighbours~n", 
+                      [Row, 
+                       Col,
+                      length(Neighbours)]),            
             gol_cell:loop(cell(Row, Col, State, Neighbours), none)
     end.
 
@@ -50,7 +54,7 @@ loop(Cell, Game) ->
         {_, exit} ->
             io:format("~p:~p got exit~n", [gol_cell:row(Cell), gol_cell:col(Cell)]);
         Any ->
-            io:format("any message: ~p~n", [Any]),
+            io:format("~p:~p got : ~p~n", [gol_cell:row(Cell), gol_cell:col(Cell), Any]),
             gol_cell:loop(Cell, Game)
     end.
 
@@ -67,5 +71,6 @@ wait_update(Cell, Game, LiveCounter, TotalCounter) ->
         {state, dead} ->
             gol_cell:wait_update(Cell, Game, LiveCounter, TotalCounter - 1);
         Any  ->
-            io:format("got: ~p~n", [Any])
+            io:format("got: ~p~n", [Any]),
+            io:format("~p:~p update got : ~p~n", [gol_cell:row(Cell), gol_cell:col(Cell), Any])
     end.
