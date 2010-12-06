@@ -59,7 +59,7 @@ handle_start(_, _) ->
 %% tick game
 
 handle_tick(_, [{"pid", PidStr}]) ->
-    % This is a quick "hack" since I dodn't had the time to check how to 
+    % This is a quick "hack" since I didn't had the time to check how to 
     % properly encode < and > into the url.
     MyPid = "<" ++ PidStr ++ ">",
     % this can fail and should be handled. 
