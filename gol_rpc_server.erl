@@ -9,34 +9,13 @@ box(Str) ->
     {'div',[{class,"box"}],
      {pre,[],Str}}.
 
-out3(_) ->
-
-    Data2 = {array,
-             [{struct,[{row,1},{col,1},{state,"dead"}]},
-              {struct,[{row,1},{col,2},{state,"dead"}]},
-              {struct,[{row,1},{col,3},{state,"dead"}]},
-              {struct,[{row,2},{col,1},{state,"living"}]},
-              {struct,[{row,2},{col,2},{state,"living"}]},
-              {struct,[{row,2},{col,3},{state,"living"}]},
-              {struct,[{row,3},{col,1},{state,"dead"}]},
-              {struct,[{row,3},{col,2},{state,"dead"}]},
-              {struct,[{row,3},{col,3},{state,"dead"}]}]
-            },
-    Data = {array, [
-                    {struct, [{row,1},{col,1},{state,"dead"}] },
-                    {struct, [{row,1},{col,2},{state,"dead"}] }
-                   ]
-           },
-
-    J = json:encode(Data2),
-    return_json(J).
+%% We start by switching on the path supplied to us
+%% For the game of life server we have implemented start and tick
 
 out(A) ->
-
-
     Path = lists:map(fun(X) -> string:to_lower(X) end, 
                      string:tokens(A#arg.appmoddata, "/")),
-    handle_request(A, Path, A#arg.querydata).
+    gol_rpc_server:route_request(A, Path, A#arg.querydata).
 
 %% {ehtml,
 %%  [{p,[],
@@ -47,74 +26,74 @@ out(A) ->
 %%                       A#arg.req#http_request.method,
 %%                       A#arg.querydata]))}]}.
 
-handle_request(A, ["start"], undefined) ->
-    {ehtml,
-     [{p,[],
-       box(io_lib:format("Unknown stuff~p~n", [""]))}]};
 
-handle_request(A, ["start"], Querydata) ->
-    Parameters = [string:tokens(P, "=")|| P  <- string:tokens(Querydata, "&")],
-    KeyValues = [{string:to_lower(Key), Value} || [Key, Value] <- Parameters],
-    io:format("p=~p~n", [KeyValues]),
-    handle_start(A, KeyValues);
+%% route our request to the correct method
 
-handle_request(A, ["tick"], Querydata) ->
-    Parameters = [string:tokens(P, "=")|| P  <- string:tokens(Querydata, "&")],
-    KeyValues = [{string:to_lower(Key), Value} || [Key, Value] <- Parameters],
-    io:format("p=~p~n", [KeyValues]),
-    handle_tick(A, KeyValues).
+route_request(A, ["start"], Querydata) ->
+    handle_start(A, gol_rpc_server:query_to_keyvalues(Querydata));
 
-                                                %H = A#arg.headers,
-                                                %C = H#headers.cookie,
-                                                %PidStr = yaws_api:find_cookie_val("game", C),
-                                                %io:format("~p~n", [PidStr]),
+route_request(A, ["tick"], Querydata) ->
+    handle_tick(A, gol_rpc_server:query_to_keyvalues(Querydata));
 
-                                                %Pid = list_to_pid(PidStr),
-                                                %io:format("will tick ~n"),
-                                                %gol:tick(Pid),
-                                                %io:format("did tick").
+route_request(_, Path, _) ->
+    io:format("Server got unknown path:~p~n", [Path]),
+    gol_rpc_server:error_message(400, "Unknown path").
 
-%% State = gol:get_state(game),
-%% Json = json:encode(State),
-%% return_json(Json).
+%% start new game
 
-handle_tick(A, [{"pid", PidStr}]) ->
-    MyPid = "<" ++ PidStr ++ ">",
-    Pid = list_to_pid(MyPid),
-    gol:tick(Pid),
-    Res = gol:get_state(Pid),
-    io:format("~p~n", [Res]),
-    Data2 = {array,
-             [{struct,[{row,1},{col,1},{state,"dead"}]},
-              {struct,[{row,1},{col,2},{state,"dead"}]},
-              {struct,[{row,1},{col,3},{state,"dead"}]},
-              {struct,[{row,2},{col,1},{state,"living"}]},
-              {struct,[{row,2},{col,2},{state,"living"}]},
-              {struct,[{row,2},{col,3},{state,"living"}]},
-              {struct,[{row,3},{col,1},{state,"dead"}]},
-              {struct,[{row,3},{col,2},{state,"dead"}]},
-              {struct,[{row,3},{col,3},{state,"dead"}]}]
-            },
-    Json = json:encode(json_array(Res)),
-    return_json(Json).
-
-handle_start(A, [{"initialstate", InitialState}]) ->
+handle_start(_, [{"initialstate", InitialState}]) ->
+    % initial state is given as a string of 0's and 1's where each row is
+    % separated by ;
+    % Note: No check is done wether the string is valid
     StartState = string:tokens(InitialState, ";"),
     Pid = gol:start(StartState),
     PidStr = pid_to_list(Pid),
-                                                %yaws_api:setcookie("game", PidStr),
-                                                %H = A#arg.headers,
-                                                %C = H#headers.cookie,
-                                                %PidStr2 = yaws_api:find_cookie_val("game", C),
-    io:format("~p~n", [PidStr]),
+    % we return the Pid which must be supplied in the calls to tick
+    % Note: we probably should keep some kind of dictionary and return
+    % an unique key that is mapped to the pid but this is just for testing
     return_json(json:encode(json_struct([{pid, PidStr}])));
 
-handle_start(A, [{"rows", Rows}, {"cols", Cols}, {"initialstate", InitialState}]) ->
-    io:format("Got rows = ~p, cols = ~p~n", [Rows,Cols]).
+handle_start(_, _) ->
+    gol_rpc_server:error_message(400, "start requires initialstate").
 
-out2(A) ->
+%% tick game
 
-    ok.
+handle_tick(_, [{"pid", PidStr}]) ->
+    % This is a quick "hack" since I dodn't had the time to check how to 
+    % properly encode < and > into the url.
+    MyPid = "<" ++ PidStr ++ ">",
+    % this can fail and should be handled. 
+    % the supplied string might be in the wrong format
+    % the pid might have died
+    Pid = list_to_pid(MyPid),
+    gol:tick(Pid),
+    Res = gol:get_state(Pid),
+    Json = json:encode(json_array(Res)),
+    % the current state of the game is returned as json
+    return_json(Json);
+
+handle_tick(_, _) ->
+    gol_rpc_server:error_message(400, "tick requires pid").
+
+%% helpers
+
+error_message(Code, Message) ->
+    [{status, Code},
+     {content, "text/plain", Message}].
+
+query_to_keyvalues(undefined) ->
+    [];
+
+query_to_keyvalues(Querydata) ->
+    % First split the query string into parameters by & and then into key value pair
+    % by splitting on =
+    % Note: this will not work if parameters are suppliedin another form than 
+    % key=value
+    Parameters = [string:tokens(P, "=")|| P  <- string:tokens(Querydata, "&")],
+    [{string:to_lower(Key), Value} || [Key, Value] <- Parameters].
+    
+
+%% json helper methods
 
 json_array(L) ->
     {array, L}.
@@ -126,9 +105,3 @@ return_json(Json) ->
     {content, 
      "application/json; charset=iso-8859-1", 
      Json}.
-
-return_json() ->
-    json:encode({struct, [{row, 1}]}).
-
-
-
