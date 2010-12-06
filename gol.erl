@@ -144,7 +144,7 @@ wait_cell_state(From, AllCells, 0, States) ->
 wait_cell_state(From, AllCells, UpdateCounter, States) ->
     receive
         {Row, Col, State} ->
-            CellData = {struct, [{row, Row}, {col, Col}, {state, State}]},
+            CellData = {struct, [{row, Row}, {col, Col}, {state, atom_to_list(State)}]},
             gol:wait_cell_state(From, AllCells, UpdateCounter-1, 
                                 [CellData|States])
     end.
