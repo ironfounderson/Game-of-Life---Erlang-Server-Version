@@ -113,10 +113,10 @@ loop(AllCells) ->
         Any ->
             io:format("main loop got unknown message: ~p~n", [Any]),
             gol:loop(AllCells)
-    after
+    %after
         % after 5 minutes the game will time out and die
-        300000 ->
-            erlang:exit(timeout)
+     %   300000 ->
+      %      erlang:exit(timeout)
     end.
 
 %% waiting for all cells to send an update

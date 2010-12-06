@@ -51,6 +51,7 @@ handle_start(_, [{"initialstate", InitialState}]) ->
     % we return the Pid which must be supplied in the calls to tick
     % Note: we probably should keep some kind of dictionary and return
     % an unique key that is mapped to the pid but this is just for testing
+    io:format("got start request with initial state:~p~n", [InitialState]),
     return_json(json:encode(json_struct([{pid, PidStr}])));
 
 handle_start(_, _) ->
@@ -66,8 +67,10 @@ handle_tick(_, [{"pid", PidStr}]) ->
     % the supplied string might be in the wrong format
     % the pid might have died
     Pid = list_to_pid(MyPid),
+    io:format("got tick request for ~p~n", [Pid]),
     gol:tick(Pid),
     Res = gol:get_state(Pid),
+    io:format("returning response~n"),
     Json = json:encode(json_array(Res)),
     % the current state of the game is returned as json
     return_json(Json);
