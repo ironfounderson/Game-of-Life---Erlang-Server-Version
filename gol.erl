@@ -13,27 +13,16 @@ start_test() ->
     start(["000", "111", "000"]).
 
 start([IS | InitialStates]) ->
-    io:format("Columns = ~p, Rows = ~p~n", 
-              [length(IS), 
-               length([IS|InitialStates])]),
+    % Spawn main game process so I can link to the cell processes
+    spawn(fun() -> gol:init([IS | InitialStates]) end).
 
+init([IS | InitialStates]) ->
     AllCells = generate_cells(length(IS),
                               length([IS|InitialStates]),
                               lists:reverse([IS|InitialStates])),
-    
     gol:assign_neighbours(AllCells, AllCells),
-
-    GamePid = spawn(fun() -> gol:loop(AllCells) end),
-    gol:unregister_if_present(game),
-    register(game, GamePid),
-    GamePid.
-
-unregister_if_present(AtomName) ->
-    case whereis(AtomName) of
-        undefined -> true;
-        _ -> unregister(AtomName)
-    end.
-
+    gol:loop(AllCells).
+    
 
 generate_cells(_, _, []) ->
      [];
@@ -55,7 +44,7 @@ generate_column_cells(_, _, _, []) ->
     [];
 generate_column_cells(CurrentRow, TotalRows, TotalCols, [H|T]) ->
     CurrentCol = length([H|T]),
-    CellPid = spawn(fun() -> gol_cell:init_loop(CurrentRow, CurrentCol, state(H)) end), 
+    CellPid = spawn_link(fun() -> gol_cell:init_loop(CurrentRow, CurrentCol, state(H)) end), 
     [{ pid, CellPid, row, CurrentRow, col, CurrentCol } |
      generate_column_cells(CurrentRow, TotalRows, TotalCols, T)].
 
@@ -108,7 +97,7 @@ rpc(Pid, Request) ->
     end.
 
 
-%% main stuff
+%% loop stuff
 
 loop(AllCells) ->
     receive
@@ -119,11 +108,15 @@ loop(AllCells) ->
             [Cell ! {self(), get_state} || {pid, Cell, _, _, _, _} <- AllCells ],
             gol:wait_cell_state(From, AllCells, length(AllCells), []);            
         {From, exit} ->
-            [Cell ! {self(), exit} || {pid, Cell, _, _, _, _} <- AllCells ],
-            From ! {self(), "exiting"};
+            From ! {self(), "exiting"},
+            erlang:exit(exit);
         Any ->
             io:format("main loop got unknown message: ~p~n", [Any]),
             gol:loop(AllCells)
+    after
+        % after 5 minutes the game will time out and die
+        300000 ->
+            erlang:exit(timeout)
     end.
 
 wait_cell_update(From, AllCells, 0) ->
