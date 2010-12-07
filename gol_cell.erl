@@ -39,15 +39,21 @@ init_loop(Row, Col, State) ->
             io:format("~p:~p has ~p neighbours~n", 
                       [Row, 
                        Col,
-                      length(Neighbours)]),            
+                      length(Neighbours)]),
             gol_cell:loop(cell(Row, Col, State, Neighbours), none)
     end.
 
+
+
 loop(Cell, Game) ->
     receive
-        {From, tick} ->
-            [C ! {state, state(Cell)} || C <- neighbours(Cell)],
-            gol_cell:wait_update(Cell, From, 0, length(neighbours(Cell)));
+        {From, prepare} ->
+            From ! {self(), ready },
+            gol_cell:wait_update(Cell, Game, 0, length(neighbours(Cell)));
+        
+        %% {From, tick} ->
+        %%     [C ! {state, state(Cell)} || C <- neighbours(Cell)],
+        %%     gol_cell:wait_update(Cell, From, 0, length(neighbours(Cell)));
         {From, get_state} ->
             From ! {row(Cell), col(Cell), state(Cell)},
             gol_cell:loop(Cell, Game);
@@ -66,6 +72,9 @@ wait_update(Cell, Game, LiveCounter, 0) ->
 
 wait_update(Cell, Game, LiveCounter, TotalCounter) ->
     receive
+        {From, tick} ->
+            [C ! {state, state(Cell)} || C <- neighbours(Cell)],
+            gol_cell:wait_update(Cell, From, LiveCounter, TotalCounter);
         {state, living } ->
             gol_cell:wait_update(Cell, Game, LiveCounter + 1, TotalCounter - 1); 
         {state, dead} ->
@@ -74,3 +83,49 @@ wait_update(Cell, Game, LiveCounter, TotalCounter) ->
             io:format("got: ~p~n", [Any]),
             io:format("~p:~p update got : ~p~n", [gol_cell:row(Cell), gol_cell:col(Cell), Any])
     end.
+
+
+%% loop(Cell, Game, LiveCounter, 0, _) ->
+%%     NewCell = update_state(Cell, LiveCounter),
+%%     Game ! {self(), done},    
+%%     gol_cell:loop(NewCell, Game, LiveCounter, length(neighbours(Cell)), 0);
+
+%% loop(Cell, Game, LiveCounter, TotalCounter, IsTicking) ->
+%%     receive
+%%         {From, tick} ->
+%%             [C ! {state, state(Cell)} || C <- neighbours(Cell)],
+%%             gol_cell:loop(Cell, From, 0, length(neighbours(Cell)), 1);
+%%         {From, get_state} ->
+%%             From ! {row(Cell), col(Cell), state(Cell)},
+%%             gol_cell:loop(Cell, Game, LiveCounter, TotalCounter, IsTicking);
+%%         {_, exit} ->
+%%             io:format("~p:~p got exit~n", [gol_cell:row(Cell), gol_cell:col(Cell)]);
+%%         {state, _ } when IsTicking == 0 ->
+%%             io:format("~p:~p got tick at wrong time~n", [gol_cell:row(Cell), gol_cell:col(Cell)]),
+%%             gol_cell:loop(Cell, Game, LiveCounter, TotalCounter, IsTicking);
+%%         {state, living } ->
+%%             gol_cell:loop(Cell, Game, LiveCounter + 1, TotalCounter - 1, IsTicking); 
+%%         {state, dead} ->
+%%             gol_cell:loop(Cell, Game, LiveCounter, TotalCounter - 1, IsTicking);
+
+%%         Any ->
+%%             io:format("~p:~p got : ~p~n", [gol_cell:row(Cell), gol_cell:col(Cell), Any]),
+%%             gol_cell:loop(Cell, Game, LiveCounter, TotalCounter, IsTicking)
+%%     end.
+
+
+%% wait_update(Cell, Game, LiveCounter, 0) ->
+%%     NewCell = update_state(Cell, LiveCounter),
+%%     Game ! {self(), done},
+%%     gol_cell:loop(NewCell, Game);
+
+%% wait_update(Cell, Game, LiveCounter, TotalCounter) ->
+%%     receive
+%%         {state, living } ->
+%%             gol_cell:wait_update(Cell, Game, LiveCounter + 1, TotalCounter - 1); 
+%%         {state, dead} ->
+%%             gol_cell:wait_update(Cell, Game, LiveCounter, TotalCounter - 1);
+%%         Any  ->
+%%             io:format("got: ~p~n", [Any]),
+%%             io:format("~p:~p update got : ~p~n", [gol_cell:row(Cell), gol_cell:col(Cell), Any])
+%%     end.

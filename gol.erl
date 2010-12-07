@@ -12,7 +12,18 @@ start_blinker() ->
 start_test() ->
     start(["000", "111", "000"]).
 
+
 start([IS | InitialStates]) ->
+%    spawn(fun() -> gol:init([IS | InitialStates]) end),
+
+    AllCells = generate_cells(length(IS),
+                              length([IS|InitialStates]),
+                              lists:reverse([IS|InitialStates])),
+    
+    gol:assign_neighbours(AllCells, AllCells),
+    spawn (fun() -> gol:loop(AllCells) end).
+
+start2([IS | InitialStates]) ->
     % Spawn main game process so I can link to the cell processes
     spawn(fun() -> gol:init([IS | InitialStates]) end).
 
@@ -99,11 +110,44 @@ rpc(Pid, Request) ->
 
 %% loop stuff
 
-loop(AllCells) ->
+loop2(AllCells, From, 0, update, _) ->
+    From ! {self(), "all cells have been updated"},
+    gol:loop2(AllCells, From, length(AllCells), none, []);
+
+loop2(AllCells, From, 0, get_state, States) ->
+    From ! {self(), States},
+    gol:loop2(AllCells, From, length(AllCells), none, []);
+
+loop2(AllCells, Sender, UpdateCounter, Query, States) ->
     receive
         {From, tick} ->
             [Cell ! {self(), tick} || {pid, Cell, _, _, _, _} <- AllCells ],
-            gol:wait_cell_update(From, AllCells, length(AllCells));
+            gol:loop2(AllCells, From, length(AllCells), update, States);
+        {From, get_state} ->
+            [Cell ! {self(), get_state} || {pid, Cell, _, _, _, _} <- AllCells ],
+            gol:loop2(AllCells, From, length(AllCells), get_state, []);            
+        {From, exit} ->
+            From ! {self(), "exiting"},
+            erlang:exit(exit);
+
+        {_, done} ->
+            gol:loop2(AllCells, Sender, UpdateCounter-1, Query, States);
+
+        {Row, Col, State} ->
+            CellData = {struct, [{row, Row}, {col, Col}, {state, atom_to_list(State)}]},
+            gol:loop2(AllCells, Sender, UpdateCounter-1, Query, 
+                      [CellData|States]);
+         
+        Any ->
+            io:format("MAIN loop got unknown message: ~p~n", [Any]),
+            gol:loop2(AllCells, Sender, UpdateCounter, Query, States)        
+        end.
+
+loop(AllCells) ->
+    receive
+        {From, tick} ->
+            [Cell ! {self(), prepare} || {pid, Cell, _, _, _, _} <- AllCells ],
+            gol:wait_cell_prepare(From, AllCells, length(AllCells));
         {From, get_state} ->
             [Cell ! {self(), get_state} || {pid, Cell, _, _, _, _} <- AllCells ],
             gol:wait_cell_state(From, AllCells, length(AllCells), []);            
@@ -119,6 +163,22 @@ loop(AllCells) ->
             io:format("exit on timeout~n"),
             erlang:exit(timeout)
     end.
+
+
+%% waiting for all cells to acknowledge the prepare
+
+wait_cell_prepare(From, AllCells, 0) ->
+    [Cell ! {self(), tick} || {pid, Cell, _, _, _, _} <- AllCells ],
+    gol:wait_cell_update(From, AllCells, length(AllCells));
+wait_cell_prepare(From, AllCells, UpdateCounter) ->
+    receive
+        {_, ready} ->
+            gol:wait_cell_prepare(From, AllCells, UpdateCounter-1);
+        Any ->
+            io:format("prepare loop got unknown message: ~p~n", [Any]),
+            gol:wait_cell_prepare(From, AllCells, UpdateCounter)
+    end.
+    
 
 %% waiting for all cells to send an update
 
