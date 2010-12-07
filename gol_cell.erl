@@ -48,12 +48,8 @@ init_loop(Row, Col, State) ->
 loop(Cell, Game) ->
     receive
         {From, prepare} ->
-            From ! {self(), ready },
+            From ! {self(), prepare_done },
             gol_cell:wait_update(Cell, Game, 0, length(neighbours(Cell)));
-        
-        %% {From, tick} ->
-        %%     [C ! {state, state(Cell)} || C <- neighbours(Cell)],
-        %%     gol_cell:wait_update(Cell, From, 0, length(neighbours(Cell)));
         {From, get_state} ->
             From ! {row(Cell), col(Cell), state(Cell)},
             gol_cell:loop(Cell, Game);
@@ -65,20 +61,28 @@ loop(Cell, Game) ->
     end.
 
 
-wait_update(Cell, Game, LiveCounter, 0) ->
-    NewCell = update_state(Cell, LiveCounter),
-    Game ! {self(), done},
-    gol_cell:loop(NewCell, Game);
-
 wait_update(Cell, Game, LiveCounter, TotalCounter) ->
+    if 
+        TotalCounter == 0 ->
+            io:format("~p:~p got tick from game :send cell_done~n", [gol_cell:row(Cell), gol_cell:col(Cell)]),
+            Game ! {self(), cell_done};
+        true  -> false
+    end,
     receive
         {From, tick} ->
+            io:format("~p:~p got tick from game :~n", [gol_cell:row(Cell), gol_cell:col(Cell)]),
             [C ! {state, state(Cell)} || C <- neighbours(Cell)],
             gol_cell:wait_update(Cell, From, LiveCounter, TotalCounter);
         {state, living } ->
+            io:format("~p:~p state ~p ~p :~n", [gol_cell:row(Cell), gol_cell:col(Cell), LiveCounter, TotalCounter]),
             gol_cell:wait_update(Cell, Game, LiveCounter + 1, TotalCounter - 1); 
         {state, dead} ->
+            io:format("~p:~p state ~p ~p :~n", [gol_cell:row(Cell), gol_cell:col(Cell), LiveCounter, TotalCounter]),
             gol_cell:wait_update(Cell, Game, LiveCounter, TotalCounter - 1);
+        {From, update} ->
+            NewCell = gol_cell:update_state(Cell, LiveCounter),
+            From ! {self(), update_done},
+            gol_cell:loop(NewCell, From);
         Any  ->
             io:format("got: ~p~n", [Any]),
             io:format("~p:~p update got : ~p~n", [gol_cell:row(Cell), gol_cell:col(Cell), Any])

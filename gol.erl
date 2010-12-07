@@ -13,56 +13,48 @@ start_test() ->
     start(["000", "111", "000"]).
 
 
-start([IS | InitialStates]) ->
+start(InitialStates) ->
 %    spawn(fun() -> gol:init([IS | InitialStates]) end),
 
-    AllCells = generate_cells(length(IS),
-                              length([IS|InitialStates]),
-                              lists:reverse([IS|InitialStates])),
+    AllCells = gol:generate_cells(lists:reverse(InitialStates)),
     
     gol:assign_neighbours(AllCells, AllCells),
     spawn (fun() -> gol:loop(AllCells) end).
 
-start2([IS | InitialStates]) ->
-    % Spawn main game process so I can link to the cell processes
-    spawn(fun() -> gol:init([IS | InitialStates]) end).
+%% start([IS | InitialStates]) ->
+%%     % Spawn main game process so I can link to the cell processes
+%%     spawn(fun() -> gol:init([IS | InitialStates]) end).
 
-init([IS | InitialStates]) ->
-    AllCells = generate_cells(length(IS),
-                              length([IS|InitialStates]),
-                              lists:reverse([IS|InitialStates])),
-    gol:assign_neighbours(AllCells, AllCells),
-    gol:loop(AllCells).
+%% init([IS | InitialStates]) ->
+%%     AllCells = generate_cells(length(IS),
+%%                               length([IS|InitialStates]),
+%%                               lists:reverse([IS|InitialStates])),
+%%     gol:assign_neighbours(AllCells, AllCells),
+%%     gol:loop(AllCells).
     
 
-generate_cells(_, _, []) ->
+generate_cells([]) ->
      [];
-
-generate_cells(TotalRows, TotalCols, [IS | InitialStates]) ->
+generate_cells([IS | InitialStates]) ->
     Cells = gol:generate_column_cells(length([IS|InitialStates]), 
-                                      TotalRows, 
-                                      TotalCols, 
                                       lists:reverse(IS)),
-    lists:append(Cells, gol:generate_cells(TotalRows, TotalCols, InitialStates)).
-
+    lists:append(Cells, gol:generate_cells(InitialStates)).
 
 state(48) ->
     dead;
 state(_) ->
     living.
 
-generate_column_cells(_, _, _, []) ->
+generate_column_cells(_, []) ->
     [];
-generate_column_cells(CurrentRow, TotalRows, TotalCols, [H|T]) ->
+generate_column_cells(CurrentRow, [H|T]) ->
     CurrentCol = length([H|T]),
     CellPid = spawn_link(fun() -> gol_cell:init_loop(CurrentRow, CurrentCol, state(H)) end), 
     [{ pid, CellPid, row, CurrentRow, col, CurrentCol } |
-     generate_column_cells(CurrentRow, TotalRows, TotalCols, T)].
-
+     generate_column_cells(CurrentRow, T)].
 
 assign_neighbours([], _) ->
     ok;
-
 assign_neighbours([{pid, Pid, row, Row, col, Col}|Cells], AllCells) ->
     Neighbours = neighbours(Row, Col, AllCells),
     Pid ! {set_neighbours, Neighbours},
@@ -70,10 +62,8 @@ assign_neighbours([{pid, Pid, row, Row, col, Col}|Cells], AllCells) ->
 
 is_neighbour(Row, Col, Row, Col) -> 
     false;
-
 is_neighbour(Row, Col, NeighbourRow, NeighbourCol) ->
     (abs(Row - NeighbourRow) =< 1) and (abs(Col - NeighbourCol) =< 1).
-
 
 neighbours(Row, Col, AllCells) ->
     [Pid || {pid, Pid, _, _, _, _ } 
@@ -110,39 +100,6 @@ rpc(Pid, Request) ->
 
 %% loop stuff
 
-loop2(AllCells, From, 0, update, _) ->
-    From ! {self(), "all cells have been updated"},
-    gol:loop2(AllCells, From, length(AllCells), none, []);
-
-loop2(AllCells, From, 0, get_state, States) ->
-    From ! {self(), States},
-    gol:loop2(AllCells, From, length(AllCells), none, []);
-
-loop2(AllCells, Sender, UpdateCounter, Query, States) ->
-    receive
-        {From, tick} ->
-            [Cell ! {self(), tick} || {pid, Cell, _, _, _, _} <- AllCells ],
-            gol:loop2(AllCells, From, length(AllCells), update, States);
-        {From, get_state} ->
-            [Cell ! {self(), get_state} || {pid, Cell, _, _, _, _} <- AllCells ],
-            gol:loop2(AllCells, From, length(AllCells), get_state, []);            
-        {From, exit} ->
-            From ! {self(), "exiting"},
-            erlang:exit(exit);
-
-        {_, done} ->
-            gol:loop2(AllCells, Sender, UpdateCounter-1, Query, States);
-
-        {Row, Col, State} ->
-            CellData = {struct, [{row, Row}, {col, Col}, {state, atom_to_list(State)}]},
-            gol:loop2(AllCells, Sender, UpdateCounter-1, Query, 
-                      [CellData|States]);
-         
-        Any ->
-            io:format("MAIN loop got unknown message: ~p~n", [Any]),
-            gol:loop2(AllCells, Sender, UpdateCounter, Query, States)        
-        end.
-
 loop(AllCells) ->
     receive
         {From, tick} ->
@@ -159,7 +116,7 @@ loop(AllCells) ->
             gol:loop(AllCells)
     after
          % after 5 minutes the game will time out and die
-        10000 ->
+        300000 ->
             io:format("exit on timeout~n"),
             erlang:exit(timeout)
     end.
@@ -168,11 +125,12 @@ loop(AllCells) ->
 %% waiting for all cells to acknowledge the prepare
 
 wait_cell_prepare(From, AllCells, 0) ->
+    io:format("prepare done~n"),
     [Cell ! {self(), tick} || {pid, Cell, _, _, _, _} <- AllCells ],
-    gol:wait_cell_update(From, AllCells, length(AllCells));
+    gol:wait_cell_done(From, AllCells, length(AllCells));
 wait_cell_prepare(From, AllCells, UpdateCounter) ->
     receive
-        {_, ready} ->
+        {_, prepare_done} ->
             gol:wait_cell_prepare(From, AllCells, UpdateCounter-1);
         Any ->
             io:format("prepare loop got unknown message: ~p~n", [Any]),
@@ -182,17 +140,18 @@ wait_cell_prepare(From, AllCells, UpdateCounter) ->
 
 %% waiting for all cells to send an update
 
-wait_cell_update(From, AllCells, 0) ->
-    From ! {self(), "all cells have been updated"},
-    gol:loop(AllCells);
-
-wait_cell_update(From, AllCells, UpdateCounter) ->
+wait_cell_done(From, AllCells, 0) ->
+    io:format("done done~n"),    
+    [Cell ! {self(), update} || {pid, Cell, _, _, _, _} <- AllCells ],
+    gol:wait_cell_update(From, AllCells, length(AllCells));
+wait_cell_done(From, AllCells, UpdateCounter) ->
     receive
-        {_, done} ->
-            gol:wait_cell_update(From, AllCells, UpdateCounter-1);
+        {_, cell_done} ->
+            io:format("got cell done~n"),
+            gol:wait_cell_done(From, AllCells, UpdateCounter-1);
         Any ->
-            io:format("wait loop got unknown message: ~p~n", [Any]),
-            gol:wait_cell_update(From, AllCells, UpdateCounter)
+            io:format("done loop got unknown message: ~p~n", [Any]),
+            gol:wait_cell_done(From, AllCells, UpdateCounter)
     end.
 
 
@@ -201,7 +160,6 @@ wait_cell_update(From, AllCells, UpdateCounter) ->
 wait_cell_state(From, AllCells, 0, States) ->
     From ! {self(), States},
     gol:loop(AllCells);
-
 wait_cell_state(From, AllCells, UpdateCounter, States) ->
     receive
         {Row, Col, State} ->
@@ -210,3 +168,45 @@ wait_cell_state(From, AllCells, UpdateCounter, States) ->
                                 [CellData|States])
     end.
 
+wait_cell_update(From, AllCells, 0) ->
+    From ! {self(), "Cell update done"},
+    gol:loop(AllCells);
+wait_cell_update(From, AllCells, UpdateCounter) ->
+    receive
+        {_, update_done} ->
+            gol:wait_cell_update(From, AllCells, UpdateCounter-1)
+    end.
+
+
+%% loop2(AllCells, From, 0, update, _) ->
+%%     From ! {self(), "all cells have been updated"},
+%%     gol:loop2(AllCells, From, length(AllCells), none, []);
+
+%% loop2(AllCells, From, 0, get_state, States) ->
+%%     From ! {self(), States},
+%%     gol:loop2(AllCells, From, length(AllCells), none, []);
+
+%% loop2(AllCells, Sender, UpdateCounter, Query, States) ->
+%%     receive
+%%         {From, tick} ->
+%%             [Cell ! {self(), tick} || {pid, Cell, _, _, _, _} <- AllCells ],
+%%             gol:loop2(AllCells, From, length(AllCells), update, States);
+%%         {From, get_state} ->
+%%             [Cell ! {self(), get_state} || {pid, Cell, _, _, _, _} <- AllCells ],
+%%             gol:loop2(AllCells, From, length(AllCells), get_state, []);            
+%%         {From, exit} ->
+%%             From ! {self(), "exiting"},
+%%             erlang:exit(exit);
+
+%%         {_, done} ->
+%%             gol:loop2(AllCells, Sender, UpdateCounter-1, Query, States);
+
+%%         {Row, Col, State} ->
+%%             CellData = {struct, [{row, Row}, {col, Col}, {state, atom_to_list(State)}]},
+%%             gol:loop2(AllCells, Sender, UpdateCounter-1, Query, 
+%%                       [CellData|States]);
+         
+%%         Any ->
+%%             io:format("MAIN loop got unknown message: ~p~n", [Any]),
+%%             gol:loop2(AllCells, Sender, UpdateCounter, Query, States)        
+%%         end.
